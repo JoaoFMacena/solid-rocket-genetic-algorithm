@@ -1,5 +1,3 @@
-atmospheric_pressure = 101325  # Pa
-
 class SolidMotor:
     def __init__(self, diameter, length, mass, propellant_grain, nozzle):
         self.internal_diameter = diameter
@@ -18,7 +16,7 @@ class SolidMotor:
         chamber_free_volume = self.propellant_grain.get_port_area() * self.length 
         return chamber_free_volume
 
-    def get_pressure_by_density(self, chamber_gas_density):
+    def get_pressure_by_density(self, chamber_gas_density, atmospheric_pressure):
         stagnation_temperature = self.propellant_grain.get_propellant_data('stagnation_temperature')
         specific_gas_constant = self.propellant_grain.get_propellant_data('specific_gas_constant')
         chamber_pressure = chamber_gas_density * specific_gas_constant * stagnation_temperature
