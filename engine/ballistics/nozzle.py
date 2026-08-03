@@ -8,6 +8,16 @@ class Nozzle:
         self.exit_area = (exit_diameter / 2) ** 2 * math.pi
         self.expansion_ratio = self.exit_area / self.throat_area
 
+    def _resolve_propellant(self, propellant):
+        if propellant is None:
+            return None
+        if hasattr(propellant, 'get_propellant_data'):
+            return propellant
+        grain_propellant = getattr(propellant, 'propellant', None)
+        if grain_propellant is not None and hasattr(grain_propellant, 'get_propellant_data'):
+            return grain_propellant
+        return None
+
     def get_mass_flow(self, chamber_pressure, propellant):
         """Estimate choked mass flow at the throat using isentropic choked-flow relation.
 
@@ -17,7 +27,11 @@ class Nozzle:
           - 'specific_gas_constant'
           - 'stagnation_temperature'
         """
-        data = propellant.get_propellant_data()
+        resolved_propellant = self._resolve_propellant(propellant)
+        if resolved_propellant is None:
+            return 0.0
+
+        data = resolved_propellant.get_propellant_data()
         gamma = data.get('gamma_nozzle', data.get('gamma_chamber', 1.4))
         R = data.get('specific_gas_constant', 287.0)
         T0 = data.get('stagnation_temperature', 300.0)
@@ -40,18 +54,26 @@ class Nozzle:
 
         low = 1.0
         high = 50.0
+
         for _ in range(100):
             mid = 0.5 * (low + high)
             val = self._area_mach_ratio(mid, gamma)
+            
+            # Correção da lógica de busca supersônica:
             if val > area_ratio:
-                high = mid
+                high = mid  # val é maior que o alvo -> o Mach verdadeiro é menor que mid
             else:
-                low = mid
+                low = mid   # val é menor que o alvo -> o Mach verdadeiro é maior que mid
+
         return 0.5 * (low + high)
 
     def get_exhaust_velocity(self, chamber_pressure, propellant, atmospheric_pressure=None):
         """Return exit velocity (m/s) and exit pressure (Pa) for the nozzle given stagnation conditions."""
-        data = propellant.get_propellant_data()
+        resolved_propellant = self._resolve_propellant(propellant)
+        if resolved_propellant is None:
+            return 0.0, 0.0, 1.0
+
+        data = resolved_propellant.get_propellant_data()
         gamma = data.get('gamma_nozzle', data.get('gamma_chamber', 1.4))
         R = data.get('specific_gas_constant', 287.0)
         T0 = data.get('stagnation_temperature', 300.0)
@@ -65,12 +87,26 @@ class Nozzle:
         pe = chamber_pressure * (1.0 + (gamma - 1.0) / 2.0 * Me * Me) ** (-gamma / (gamma - 1.0))
         return ve, pe, Me
 
-    def get_thrust(self, chamber_pressure, p_amb, propellant):
-        mdot = self.get_mass_flow(chamber_pressure, propellant)
-        ve, pe, Me = self.get_exhaust_velocity(chamber_pressure, propellant, p_amb)
-        thrust = mdot * ve + (pe - p_amb) * self.exit_area
-        return thrust
+    def get_thrust(self, chamber_pressure, p_amb, mdot, Ae, At, gamma, R_spec, Tc):
+        if chamber_pressure <= p_amb:
+            return 0.0
 
+        area_ratio = Ae / At
+        Me = self._mach_from_area_ratio(area_ratio, gamma)
+
+        pe = chamber_pressure * (1.0 + (gamma - 1.0) / 2.0 * Me * Me) ** (-gamma / (gamma - 1.0))
+
+        pe_limit = 0.4 * p_amb
+        if pe < pe_limit:
+            pe = pe_limit
+
+        pr_ratio = pe / chamber_pressure
+        ve = (2.0 * gamma / (gamma - 1.0) * R_spec * Tc * (1.0 - pr_ratio ** ((gamma - 1.0) / gamma))) ** 0.5
+
+        thrust = (mdot * ve) + (pe - p_amb) * Ae
+
+        return max(0.0, thrust)
+    
     def get_exit_mass(self, chamber_pressure=None, propellant=None, time_step=1.0):
         """Return mass exiting the nozzle over `time_step` seconds.
         If chamber_pressure or propellant are not provided, returns 0.

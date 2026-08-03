@@ -49,8 +49,8 @@ def Nakka_KNSB():
     # Richard Nakka's KNSB data
     return Propellant(
         name='NakkaKNSB',
-        a=0.0048,
-        n=0.31,
+        a=3.84,  ## This is in mm/(s * MPa^n) as per Nakka's data
+        n=0.688,  
         stagnation_temperature=1600,
         specific_gas_constant=208.53,
         gamma_chamber=1.32,
